@@ -1,40 +1,43 @@
-# Dames Native — Squelette Android/NDK
+# Dames Native — v2 : vrai moteur branché
 
-Squelette minimal pour valider la chaîne complète **C (moteur) → .so (NDK) → JNI → Kotlin → écran**,
-sans WebView ni WASM, buildé entièrement via GitHub Actions (pas besoin de PC).
+Le vrai `moteur.c` (minimax, Zobrist, table de transposition — celui utilisé
+en WASM) est maintenant branché en natif via NDK/JNI. Le jeu est jouable en
+humain contre humain (pass-and-play), en 2D, avec toutes les règles gérées
+par le C : prise obligatoire, prise maximale, rafles multiples, promotion.
 
-## Ce que fait ce squelette pour l'instant
+## Ce qui a changé depuis le squelette v1
 
-- Un `moteur.c` **stub** (factice) qui génère juste la position de départ du plateau (10x10).
-- Un pont JNI (`native-lib.cpp`) qui expose `moteur_version()` et `plateau_initial()` à Kotlin.
-- Une `MainActivity` qui charge la lib native et affiche le plateau via un `Canvas` 2D basique (`BoardView`).
-- Une CI GitHub Actions qui compile le tout (Gradle + NDK) et produit un APK debug téléchargeable.
+- `moteur.c` : ton vrai fichier, avec 3 fonctions ajoutées à la fin
+  (`natif_plateauInitial`, `natif_coupsPour`, `natif_jouerCoup`). Aucune
+  ligne existante modifiée — l'IA (`wasm_calculerMeilleurCoup`) est
+  intacte mais pas encore branchée côté Kotlin (prochaine étape).
+- `native-lib.cpp` : pont JNI vers ces 3 fonctions.
+- `MoteurJeu.kt` : wrapper Kotlin (types, parsing JSON).
+- `MainActivity.kt` : gestion complète du tour de jeu (sélection, rafles,
+  promotion, victoire, nulle) — zéro règle dupliquée, tout passe par le C.
+- `BoardView.kt` : affichage + détection tactile (case sélectionnée,
+  destinations surlignées).
+- `gradle.properties` : ajouté (fix de la première erreur de build).
 
-## Comment l'utiliser depuis ton téléphone
+## Comment tester
 
-1. Crée un nouveau dépôt GitHub (ex: `dames-native`).
-2. Pousse tout le contenu de ce dossier à la racine du dépôt (via l'app GitHub, ou `git` en ligne de commande si tu as un client Git sur ton téléphone).
-3. Le push sur `main` déclenche automatiquement le workflow `.github/workflows/build.yml`.
-4. Va dans l'onglet **Actions** du dépôt → le job "Build APK" tourne → à la fin, un artifact `dames-native-debug` contenant `app-debug.apk` est disponible en téléchargement.
-5. Télécharge et installe l'APK sur ton ZTE Blade pour valider que ça tourne.
+1. Remplace le contenu de ton dépôt GitHub par ce dossier.
+2. Push sur `main` → onglet Actions → récupère l'APK dans l'artifact.
+3. Installe sur ton téléphone. Tu dois pouvoir :
+   - toucher un pion → ses destinations légales se surlignent
+   - toucher une destination → le pion se déplace
+   - si une prise est obligatoire quelque part, seules les pièces
+     pouvant capturer se sélectionnent
+   - une rafle multiple s'enchaîne automatiquement (tu ne touches que
+     les destinations successives)
+   - un pion arrivé au bout du plateau devient dame (anneau doré)
+   - la partie se termine (Toast) si un camp est bloqué
 
-## Prochaine étape : brancher ton vrai moteur
+## Prochaines étapes
 
-Une fois que tu vois le plateau stub s'afficher sur ton téléphone :
-
-1. Remplace `app/src/main/cpp/moteur.c` par ton vrai `moteur.c` (ou `moteur_no_tt.c`).
-2. Mets à jour `app/src/main/cpp/moteur.h` avec les vraies signatures de fonctions (celles utilisées par ton système `CASE_CAPTUREE`/`BLOQUE`, la prise maximale, le minimax, etc.).
-3. Adapte `native-lib.cpp` pour exposer les fonctions dont tu as réellement besoin (ex: `jouer_coup()`, `calculer_coup_ia()`, `plateau_courant()`...).
-4. Adapte `MainActivity.kt` en conséquence (déclarations `external fun`).
-
-## Après ça : le rendu 3D
-
-`BoardView.kt` est volontairement basique (Canvas 2D) pour isoler le test JNI de tout le reste.
-L'étape suivante consistera à remplacer cette vue par un rendu OpenGL ES (recommandé vu les
-contraintes matérielles : 2GB RAM, GPU Mali bas de gamme) pour se rapprocher du rendu Three.js actuel.
-
-## Notes techniques
-
-- `minSdk 24`, `abiFilters 'arm64-v8a', 'armeabi-v7a'` — couvre la quasi-totalité des appareils Android récents dont ton ZTE Blade.
-- Pas de wrapper Gradle committé (impossible à générer sans PC) — la CI installe Gradle directement via `gradle/actions/setup-gradle`.
-- Le NDK est installé explicitement dans le workflow (version `26.1.10909125`, stable et bien supportée).
+1. **Brancher l'IA** : exposer `wasm_calculerMeilleurCoup` en JNI, appeler
+   depuis un thread Kotlin (Coroutine) pour ne pas bloquer l'UI pendant le
+   calcul — équivalent du Web Worker JS actuel.
+2. **UI** : clavier virtuel initiales, modales de confirmation, écran de
+   victoire avec confettis (portage direct depuis `index.html`).
+3. **Rendu 3D** : remplacer `BoardView` (Canvas 2D) par OpenGL ES.
