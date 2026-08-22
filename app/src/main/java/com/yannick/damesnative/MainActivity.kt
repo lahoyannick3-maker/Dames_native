@@ -4,6 +4,7 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.widget.Toast
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 
 /**
@@ -38,14 +39,23 @@ class MainActivity : AppCompatActivity() {
     private var rafleEnCours = false
     private var pionQuiRafle: Pair<Int, Int>? = null
 
+    /** Nombre de tentatives consécutives de jouer un pion sans coup légal
+     * alors qu'une prise est obligatoire ailleurs. Au-delà du seuil, on
+     * affiche un message explicite (miroir de compteurErreurs /
+     * SEUIL_ERREUR_PRISE côté JS). Remise à 0 dès qu'une sélection réussit
+     * ou que le message est fermé. */
+    private var compteurErreurs = 0
+    private val seuilErreurPrise = 6
+
     /** Règle de la nulle : 25 coups sans prise ni déplacement de pion (non-dame). */
     private var compteurCoupsNuls = 0
     private val seuilNulle = 25
 
     private val handler = Handler(Looper.getMainLooper())
     /** Délai entre deux sauts d'une même rafle jouée automatiquement, pour
-     * que l'enchaînement reste lisible (même valeur que côté JS/3D). */
-    private val delaiEntreSauts = 130L
+     * que l'enchaînement reste lisible à l'œil (assez lent pour qu'on voie
+     * chaque saut, pas juste un flash). */
+    private val delaiEntreSauts = 400L
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -98,16 +108,32 @@ class MainActivity : AppCompatActivity() {
             val tousLesCoups = MoteurJeu.coupsPour(plateau, couleurActuelle)
             val coupsDepuisCettePiece = tousLesCoups.filter { it.x1 == x && it.z1 == z }
             if (coupsDepuisCettePiece.isEmpty()) {
-                // Cette pièce existe mais n'a aucun coup légal. Si c'est parce
-                // qu'une prise est obligatoire ailleurs sur le plateau, on le
-                // signale par un flash rouge (équivalent de surlignerErreur côté JS).
+                // Cette pièce existe mais n'a aucun coup légal — que ce soit
+                // parce qu'elle est bloquée (entourée, coincée en bord de
+                // plateau...) ou parce qu'une prise est obligatoire ailleurs.
+                // Dans les deux cas on le signale par un flash rouge
+                // (équivalent de surlignerErreur côté JS, appelé dès que
+                // coups.length === 0, indépendamment de la prise obligatoire).
+                boardView.flashErreur(x, z)
+
+                // La prise obligatoire, elle, déclenche EN PLUS un compteur :
+                // au bout de 6 tentatives sur un pion sans prise possible, un
+                // message explicite s'affiche (miroir exact du JS : le flash
+                // rouge seul ne suffit pas toujours à comprendre pourquoi le
+                // pion ne bouge pas).
                 val priseObligatoire = tousLesCoups.any { it.prise }
                 if (priseObligatoire) {
-                    boardView.flashErreur(x, z)
+                    compteurErreurs++
+                    if (compteurErreurs >= seuilErreurPrise) {
+                        afficherMessagePriseObligatoire()
+                    }
+                } else {
+                    compteurErreurs = 0
                 }
                 effacerSelection()
                 return
             }
+            compteurErreurs = 0
             selection = x to z
             coupsDepuisSelection = coupsDepuisCettePiece
             cheminsDisponibles = construireChemins(plateau, x, z, coupsDepuisCettePiece)
@@ -117,6 +143,25 @@ class MainActivity : AppCompatActivity() {
             // Case vide ou pièce adverse touchée sans sélection active : désélection.
             effacerSelection()
         }
+    }
+
+    /** Message "Prise obligatoire" affiché après plusieurs tentatives infructueuses
+     * sur un pion sans coup légal alors qu'une capture est obligatoire ailleurs.
+     * Miroir de positionnerMessageObligatoire()/le div #messageObligatoire côté JS.
+     * NOTE : côté JS, ce message tourne à 180° quand c'est au tour des Noirs en
+     * pass-and-play (positionnerMessageObligatoire). Cette rotation n'est pas
+     * encore portée ici — elle fait partie de l'étape "porter l'UI" prévue plus
+     * tard, en même temps que le reste de l'UI orientée-joueur (badges, modales). */
+    private fun afficherMessagePriseObligatoire() {
+        AlertDialog.Builder(this)
+            .setTitle("⚠️ Prise obligatoire")
+            .setMessage("La règle impose que vous devez capturer un pion adverse.")
+            .setPositiveButton("Compris") { dialog, _ ->
+                compteurErreurs = 0
+                dialog.dismiss()
+            }
+            .setCancelable(false)
+            .show()
     }
 
     private fun effacerSelection() {
