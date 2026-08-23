@@ -3,6 +3,8 @@ package com.yannick.damesnative
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.view.ViewGroup
+import android.widget.FrameLayout
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
@@ -66,15 +68,35 @@ class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
+        // Racine commune : le plateau (et bientôt l'écran d'accueil) en dessous,
+        // le splash par-dessus le temps de son animation — miroir du z-index
+        // 9999 de #splashScreen côté JS, qui recouvre #menuPrincipal au démarrage.
+        val racine = FrameLayout(this)
+
         boardView = BoardView(this)
-        setContentView(boardView)
+        // TODO(UI) : le plateau est en plein écran ici. Côté JS (index.html),
+        // le plateau est CENTRÉ à l'écran pour laisser la place aux boutons
+        // quitter/nouvelle partie et aux avatars. À corriger à l'étape "UI de
+        // la partie" (avec le clavier initiales, les modales et les confettis) :
+        // remplacer par un layout qui centre boardView et réserve l'espace
+        // autour, au lieu de boardView seul en plein écran.
+        racine.addView(boardView, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
 
         plateau = MoteurJeu.plateauInitial()
         boardView.plateau = plateau
-
         boardView.onCaseTouchee = { x, z -> onCaseTouchee(x, z) }
 
-        Toast.makeText(this, "Tour des Blancs", Toast.LENGTH_SHORT).show()
+        val splash = SplashView(this)
+        racine.addView(splash, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+
+        setContentView(racine)
+
+        splash.demarrer {
+            // TODO(UI accueil) : à cette étape, afficher le véritable écran
+            // d'accueil (portage de #menuPrincipal côté JS) au lieu d'aller
+            // directement à la partie. Prochaine étape de la session UI.
+            Toast.makeText(this, "Tour des Blancs", Toast.LENGTH_SHORT).show()
+        }
     }
 
     private fun onCaseTouchee(x: Int, z: Int) {
