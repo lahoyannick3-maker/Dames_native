@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- NoActionBar : sans ça, AppCompat affiche une barre de titre
+         ("Dames Gameplay") en haut de l'écran, ce que le jeu original
+         (index.html, fullscreen) n'a jamais eu. -->
+    <style name="Theme.DamesGameplay" parent="Theme.AppCompat.DayNight.NoActionBar">
+        <!-- Fond visible entre la création de la fenêtre et le premier
+             affichage de SplashView (sur Android < 12, qui n'a pas le
+             splash système coloré ci-dessous) : même couleur que le
+             splash pour une transition invisible. -->
+        <item name="android:windowBackground">@color/splash_fond</item>
+    </style>
+</resources>

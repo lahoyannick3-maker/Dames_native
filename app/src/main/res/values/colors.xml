@@ -1,1 +1,8 @@
-e
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Même couleur que COULEUR_FOND dans SplashView.kt (#0F0C29). Réutilisée
+         comme fond de fenêtre par défaut ET comme fond du splash système
+         Android 12+, pour qu'il n'y ait aucune coupure visible avec notre
+         SplashView : un seul écran perçu, pas deux. -->
+    <color name="splash_fond">#0F0C29</color>
+</resources>
