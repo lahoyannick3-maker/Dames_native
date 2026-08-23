@@ -4,7 +4,7 @@
     <application
         android:allowBackup="true"
         android:label="Dames Gameplay"
-        android:theme="@style/Theme.AppCompat.DayNight">
+        android:theme="@style/Theme.DamesGameplay">
         <activity
             android:name=".MainActivity"
             android:exported="true">
