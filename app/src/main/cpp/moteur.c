@@ -346,25 +346,17 @@ static int getTousLesCoupsPour(int couleur, Plateau plat, CoupComplet out[MAX_CO
         }
     }
 
-    /* Règle du bouffe maximum : si des prises existent, seules celles qui
-       capturent le plus grand nombre de pièces sont autorisées (comme côté
-       JS pour le joueur humain, cf. filtre sur maxPrises dans index.html).
-       Sans ce filtre, l'IA pouvait choisir une prise de 1 alors qu'une
-       prise de 2 (ou plus) était disponible, ce qui est illégal. */
-    int maxPrises = 0;
-    if (aUnePrise) {
-        for (int i = 0; i < nTous; i++) {
-            if (tous[i].info.prise && tous[i].info.nbPrises > maxPrises) {
-                maxPrises = tous[i].info.nbPrises;
-            }
-        }
-    }
-
+    /* Prise obligatoire SANS bouffe maximum : si des prises existent, tous
+       les coups de capture sont autorisés (quelle que soit la longueur de
+       la chaîne), et seuls les coups sans prise sont exclus. Le joueur (ou
+       l'IA) reste forcé de capturer, mais choisit librement lequel des
+       chemins de capture il joue, sans qu'on lui impose celui qui prend le
+       plus de pièces. nbPrises reste calculé dans getTousLesCoups() et
+       continue de servir ailleurs (tri, heuristique IA, détection de suite
+       de rafle) : seul ce filtre par maxPrises a été retiré ici. */
     int n = 0;
     for (int i = 0; i < nTous; i++) {
-        if (!aUnePrise) {
-            out[n++] = tous[i];
-        } else if (tous[i].info.prise && tous[i].info.nbPrises == maxPrises) {
+        if (!aUnePrise || tous[i].info.prise) {
             out[n++] = tous[i];
         }
     }
@@ -901,11 +893,12 @@ void natif_plateauInitial(int8_t *outFlat) {
     versFlat(plat, outFlat);
 }
 
-/* Tous les coups légaux d'une couleur, prise obligatoire et prise maximale
-   déjà appliquées (comme dans deplacerPion/selectionnerPion côté JS, mais
-   ici c'est la SEULE version qui existe). Chaque coup est le PREMIER saut
-   d'une éventuelle rafle ; nbPrises indique la longueur totale de la chaîne
-   pour permettre à l'UI de comprendre qu'une rafle continuera après ce saut.
+/* Tous les coups légaux d'une couleur, prise obligatoire déjà appliquée
+   (bouffe maximum RETIRÉE : si une capture existe, tous les chemins de
+   capture sont légaux, pas seulement le(s) plus long(s) — le joueur choisit
+   librement lequel jouer). Chaque coup est le PREMIER saut d'une éventuelle
+   rafle ; nbPrises indique la longueur totale de la chaîne pour permettre à
+   l'UI de comprendre qu'une rafle continuera après ce saut.
    Retourne un JSON: [{"x1":.,"z1":.,"x2":.,"z2":.,"prise":.,"nbPrises":.}, ...] */
 EMSCRIPTEN_KEEPALIVE
 char *natif_coupsPour(int8_t *flat, int couleur) {
