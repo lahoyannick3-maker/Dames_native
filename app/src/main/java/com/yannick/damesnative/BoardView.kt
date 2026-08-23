@@ -117,13 +117,15 @@ class BoardView(context: Context) : View(context) {
         val dx = (x2 - x1).toFloat()
         val dz = (z2 - z1).toFloat()
         val distanceCases = sqrt(dx * dx + dz * dz)
-        // Mêmes constantes que côté JS (vitesseUnitesParSeconde / DUREE_MIN /
-        // DUREE_MAX dans animer()) : vitesse constante en cases/seconde,
-        // bornée pour qu'un saut d'une case ne soit jamais trop brusque, et
-        // qu'une longue glissade de dame ne traîne pas trop en longueur.
-        val VITESSE_CASES_PAR_SEC = 4.2f
-        val DUREE_MIN = 0.16f
-        val DUREE_MAX = 0.45f
+        // Vitesse constante en cases/seconde, bornée pour qu'un saut d'une
+        // case ne soit jamais trop brusque, et qu'une longue glissade de
+        // dame ne traîne pas trop en longueur. Ralenti par rapport aux
+        // constantes JS d'origine (4.2 / 0.16 / 0.45) : sur un petit écran
+        // de téléphone, une rafle à plusieurs sauts enchaînés à cette
+        // vitesse-là passait trop vite pour bien voir chaque prise.
+        val VITESSE_CASES_PAR_SEC = 2.6f
+        val DUREE_MIN = 0.24f
+        val DUREE_MAX = 0.65f
         val dureeSec = (distanceCases / VITESSE_CASES_PAR_SEC).coerceIn(DUREE_MIN, DUREE_MAX)
 
         val anim = AnimationCoup(
@@ -237,8 +239,8 @@ class BoardView(context: Context) : View(context) {
      * début du saut, puis s'efface (fondu + léger rétrécissement) pile au
      * moment où le sauteur passe au-dessus d'elle. */
     private fun dessinerPionCapture(canvas: Canvas, x: Float, y: Float, t: Float, anim: AnimationCoup) {
-        val debut = 0.3f
-        val fin = 0.85f
+        val debut = 0.4f
+        val fin = 0.9f
         val p = anim.progress
         val ratio = when {
             p <= debut -> 1f

@@ -22,7 +22,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var boardView: BoardView
 
     private var plateau: ByteArray = ByteArray(100)
-    private var couleurActuelle: Int = MoteurJeu.NOIR // les noirs commencent, comme côté JS
+    private var couleurActuelle: Int = MoteurJeu.BLANC // les blancs commencent par défaut, comme côté JS (joueurActuel = 'blanc')
 
     private var selection: Pair<Int, Int>? = null
     /** Coups légaux (1er saut) depuis la case sélectionnée. */
@@ -61,7 +61,7 @@ class MainActivity : AppCompatActivity() {
      * que la chaîne reste lisible à l'œil, plutôt que de tout miser sur ce
      * délai (miroir du petit gap de 130 ms entre captures côté JS).
      */
-    private val pauseEntreSauts = 100L
+    private val pauseEntreSauts = 180L
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -74,7 +74,7 @@ class MainActivity : AppCompatActivity() {
 
         boardView.onCaseTouchee = { x, z -> onCaseTouchee(x, z) }
 
-        Toast.makeText(this, "Tour des Noirs", Toast.LENGTH_SHORT).show()
+        Toast.makeText(this, "Tour des Blancs", Toast.LENGTH_SHORT).show()
     }
 
     private fun onCaseTouchee(x: Int, z: Int) {
