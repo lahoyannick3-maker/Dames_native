@@ -1,1 +1,10 @@
-e
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Icône vide (aucun <path>) : le splash système Android 12+ exige une
+     icône, mais on ne veut voir QUE le fond de couleur, pas de robot Android
+     par défaut ni d'icône d'app "placeholder". Résultat : un simple fond
+     uni, qui enchaîne directement avec SplashView.kt sans coupure visible. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="1dp"
+    android:height="1dp"
+    android:viewportWidth="1"
+    android:viewportHeight="1" />
