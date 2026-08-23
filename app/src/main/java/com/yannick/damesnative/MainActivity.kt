@@ -52,10 +52,16 @@ class MainActivity : AppCompatActivity() {
     private val seuilNulle = 25
 
     private val handler = Handler(Looper.getMainLooper())
-    /** Délai entre deux sauts d'une même rafle jouée automatiquement, pour
-     * que l'enchaînement reste lisible à l'œil (assez lent pour qu'on voie
-     * chaque saut, pas juste un flash). */
-    private val delaiEntreSauts = 400L
+    /** Petite pause de lisibilité entre deux sauts d'une même rafle jouée
+     * automatiquement. Avant l'animation réelle du pion (glissement + saut),
+     * ce délai devait à lui seul faire tout le travail visuel (400 ms, sinon
+     * l'enchaînement paraissait instantané). Maintenant que animerCoup() sur
+     * BoardView anime vraiment chaque saut (~160-450 ms selon la distance),
+     * on n'a plus besoin que d'une courte respiration entre deux sauts pour
+     * que la chaîne reste lisible à l'œil, plutôt que de tout miser sur ce
+     * délai (miroir du petit gap de 130 ms entre captures côté JS).
+     */
+    private val pauseEntreSauts = 100L
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -208,8 +214,10 @@ class MainActivity : AppCompatActivity() {
 
     /** Rejoue automatiquement une séquence de sauts (une rafle entière, ou le
      * bout de chemin menant à la case touchée), un saut réel à la fois via
-     * jouer(), avec un léger délai entre chaque pour que l'enchaînement reste
-     * visible à l'écran plutôt qu'instantané. */
+     * jouer(). Chaque étape n'est lancée qu'une fois l'animation du saut
+     * précédent VRAIMENT terminée (callback apresAnimation de jouer()), avec
+     * une courte pause de lisibilité entre les deux, au lieu d'un délai fixe
+     * qui ne tenait pas compte du temps réel de l'animation. */
     private fun jouerSequence(depart: Pair<Int, Int>, sauts: List<Pair<Int, Int>>) {
         if (sauts.isEmpty()) return
         var xActuel = depart.first
@@ -217,67 +225,90 @@ class MainActivity : AppCompatActivity() {
 
         fun etape(i: Int) {
             val (x2, z2) = sauts[i]
-            jouer(xActuel, zActuel, x2, z2)
-            xActuel = x2; zActuel = z2
-            if (i + 1 < sauts.size) {
-                handler.postDelayed({ etape(i + 1) }, delaiEntreSauts)
+            jouer(xActuel, zActuel, x2, z2) {
+                xActuel = x2; zActuel = z2
+                if (i + 1 < sauts.size) {
+                    handler.postDelayed({ etape(i + 1) }, pauseEntreSauts)
+                }
             }
         }
         etape(0)
     }
 
-    private fun jouer(x1: Int, z1: Int, x2: Int, z2: Int) {
+    /** Joue un saut (x1,z1) -> (x2,z2) déjà validé par le moteur, en
+     * l'animant réellement sur BoardView (glissement, ou saut par-dessus la
+     * pièce capturée qui s'efface progressivement). Toute la logique qui
+     * dépendait auparavant du résultat immédiat de jouerCoup (règle de la
+     * nulle, suite de rafle, promotion, fin de tour/partie) est maintenant
+     * appliquée dans le callback de fin d'animation, pour qu'elle ne
+     * s'exécute jamais avant que le joueur ait vu le coup se jouer à
+     * l'écran — miroir de terminerLogiqueCoup() côté JS. [apresAnimation]
+     * est appelé une fois tout ce traitement terminé, pour que jouerSequence
+     * puisse enchaîner sur le saut suivant au bon moment. */
+    private fun jouer(x1: Int, z1: Int, x2: Int, z2: Int, apresAnimation: () -> Unit = {}) {
         val pieceEtaitDame = plateau.getOrElse(x1 * 10 + z1) { -1 }.toInt().let { it == 1 || it == 3 }
 
         val resultat = MoteurJeu.jouerCoup(plateau, x1, z1, x2, z2)
-        if (resultat.erreur) return // ne devrait pas arriver : on ne propose que des coups déjà validés par le moteur
+        if (resultat.erreur) { // ne devrait pas arriver : on ne propose que des coups déjà validés par le moteur
+            apresAnimation()
+            return
+        }
 
-        plateau = resultat.plateau
-        boardView.plateau = plateau
+        boardView.animerCoup(
+            x1, z1, x2, z2,
+            estPrise = resultat.prise, xPris = resultat.px, zPris = resultat.pz,
+            plateauApres = resultat.plateau
+        ) {
+            plateau = resultat.plateau
 
-        // Règle de la nulle : reset sur prise ou déplacement de pion (non-dame).
-        compteurCoupsNuls = if (resultat.prise || !pieceEtaitDame) 0 else compteurCoupsNuls + 1
+            // Règle de la nulle : reset sur prise ou déplacement de pion (non-dame).
+            compteurCoupsNuls = if (resultat.prise || !pieceEtaitDame) 0 else compteurCoupsNuls + 1
 
-        if (resultat.suite.isNotEmpty()) {
-            // La rafle continue avec la même pièce, depuis sa nouvelle case.
-            rafleEnCours = true
-            pionQuiRafle = x2 to z2
-            selection = x2 to z2
-            coupsDepuisSelection = resultat.suite.map { (sx2, sz2) ->
-                CoupLegal(x1 = x2, z1 = z2, x2 = sx2, z2 = sz2, prise = true, nbPrises = 0)
+            if (resultat.suite.isNotEmpty()) {
+                // La rafle continue avec la même pièce, depuis sa nouvelle case.
+                rafleEnCours = true
+                pionQuiRafle = x2 to z2
+                selection = x2 to z2
+                coupsDepuisSelection = resultat.suite.map { (sx2, sz2) ->
+                    CoupLegal(x1 = x2, z1 = z2, x2 = sx2, z2 = sz2, prise = true, nbPrises = 0)
+                }
+                // Rafraîchit l'arbre des chemins restants depuis la nouvelle case,
+                // pour qu'un toucher plus loin dans la rafle continue à fonctionner.
+                cheminsDisponibles = construireChemins(plateau, x2, z2, coupsDepuisSelection)
+                boardView.selection = selection
+                boardView.casesSurlignees = cheminsDisponibles.flatten().distinct()
+                apresAnimation()
+                return@animerCoup
             }
-            // Rafraîchit l'arbre des chemins restants depuis la nouvelle case,
-            // pour qu'un toucher plus loin dans la rafle continue à fonctionner.
-            cheminsDisponibles = construireChemins(plateau, x2, z2, coupsDepuisSelection)
-            boardView.selection = selection
-            boardView.casesSurlignees = cheminsDisponibles.flatten().distinct()
-            return
+
+            // Rafle (ou coup simple) terminée : fin de tour.
+            rafleEnCours = false
+            pionQuiRafle = null
+            effacerSelection()
+
+            if (resultat.devientDame) {
+                Toast.makeText(this, "Promotion en dame !", Toast.LENGTH_SHORT).show()
+            }
+
+            if (compteurCoupsNuls >= seuilNulle) {
+                Toast.makeText(this, "Partie nulle (25 coups sans prise)", Toast.LENGTH_LONG).show()
+                apresAnimation()
+                return@animerCoup
+            }
+
+            couleurActuelle = if (couleurActuelle == MoteurJeu.NOIR) MoteurJeu.BLANC else MoteurJeu.NOIR
+
+            // Fin de partie : plus aucun coup légal pour le joueur au trait.
+            if (MoteurJeu.coupsPour(plateau, couleurActuelle).isEmpty()) {
+                val gagnant = if (couleurActuelle == MoteurJeu.NOIR) "Blancs" else "Noirs"
+                Toast.makeText(this, "$gagnant gagnent !", Toast.LENGTH_LONG).show()
+                apresAnimation()
+                return@animerCoup
+            }
+
+            val nomCouleur = if (couleurActuelle == MoteurJeu.NOIR) "Noirs" else "Blancs"
+            Toast.makeText(this, "Tour des $nomCouleur", Toast.LENGTH_SHORT).show()
+            apresAnimation()
         }
-
-        // Rafle (ou coup simple) terminée : fin de tour.
-        rafleEnCours = false
-        pionQuiRafle = null
-        effacerSelection()
-
-        if (resultat.devientDame) {
-            Toast.makeText(this, "Promotion en dame !", Toast.LENGTH_SHORT).show()
-        }
-
-        if (compteurCoupsNuls >= seuilNulle) {
-            Toast.makeText(this, "Partie nulle (25 coups sans prise)", Toast.LENGTH_LONG).show()
-            return
-        }
-
-        couleurActuelle = if (couleurActuelle == MoteurJeu.NOIR) MoteurJeu.BLANC else MoteurJeu.NOIR
-
-        // Fin de partie : plus aucun coup légal pour le joueur au trait.
-        if (MoteurJeu.coupsPour(plateau, couleurActuelle).isEmpty()) {
-            val gagnant = if (couleurActuelle == MoteurJeu.NOIR) "Blancs" else "Noirs"
-            Toast.makeText(this, "$gagnant gagnent !", Toast.LENGTH_LONG).show()
-            return
-        }
-
-        val nomCouleur = if (couleurActuelle == MoteurJeu.NOIR) "Noirs" else "Blancs"
-        Toast.makeText(this, "Tour des $nomCouleur", Toast.LENGTH_SHORT).show()
     }
 }
