@@ -87,7 +87,7 @@ class MenuPrincipalView(context: Context) : FrameLayout(context) {
         conteneur.addView(construireCarte(context))
         defilement.addView(
             conteneur,
-            ScrollView.LayoutParams(ScrollView.LayoutParams.MATCH_PARENT, ScrollView.LayoutParams.MATCH_PARENT)
+            FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT)
         )
 
         addView(defilement, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
