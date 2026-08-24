@@ -50,7 +50,7 @@ class MenuPrincipalView(context: Context) : FrameLayout(context) {
         private val COULEUR_MOT2 = 0xFFFFFFFF.toInt() // GAME (blanc)
         private val COULEUR_MOT3 = 0xFF008000.toInt() // PLAY (vert)
 
-        private const val COULEUR_CARTE_FOND = 0x8C141223 // rgba(20,18,35,0.55)
+        private const val COULEUR_CARTE_FOND = 0x8C141223.toInt() // rgba(20,18,35,0.55)
         private const val COULEUR_CARTE_BORD = 0x1FFFFFFF // rgba(255,255,255,0.12)
         private const val COULEUR_SOUS_TITRE = 0xA6FFFFFF.toInt() // rgba(255,255,255,0.65)
         private const val COULEUR_SEPARATEUR_TEXTE = 0x66FFFFFF // rgba(255,255,255,0.4)
@@ -90,7 +90,7 @@ class MenuPrincipalView(context: Context) : FrameLayout(context) {
             ScrollView.LayoutParams(ScrollView.LayoutParams.MATCH_PARENT, ScrollView.LayoutParams.MATCH_PARENT)
         )
 
-        addView(defilement, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
+        addView(defilement, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
     }
 
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
