@@ -22,6 +22,13 @@ import androidx.appcompat.app.AppCompatActivity
 class MainActivity : AppCompatActivity() {
 
     private lateinit var boardView: BoardView
+    private lateinit var menuPrincipal: MenuPrincipalView
+
+    /** Mode de partie choisi au menu : "humain", "faible", "moyen", "normal"
+     * ou "expert" (miroir de la variable modeJeu côté JS). L'IA elle-même
+     * (JNI + coroutines) n'est pas encore branchée : les modes IA lancent
+     * pour l'instant une partie humain contre humain, en attendant. */
+    private var modeJeu: String = "humain"
 
     private var plateau: ByteArray = ByteArray(100)
     private var couleurActuelle: Int = MoteurJeu.BLANC // les blancs commencent par défaut, comme côté JS (joueurActuel = 'blanc')
@@ -80,11 +87,24 @@ class MainActivity : AppCompatActivity() {
         // la partie" (avec le clavier initiales, les modales et les confettis) :
         // remplacer par un layout qui centre boardView et réserve l'espace
         // autour, au lieu de boardView seul en plein écran.
+        // Caché tant qu'aucune partie n'est lancée (miroir de
+        // renderer.domElement.style.display = 'none' au menu côté JS).
+        boardView.visibility = android.view.View.GONE
         racine.addView(boardView, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
 
         plateau = MoteurJeu.plateauInitial()
         boardView.plateau = plateau
         boardView.onCaseTouchee = { x, z -> onCaseTouchee(x, z) }
+
+        menuPrincipal = MenuPrincipalView(this)
+        menuPrincipal.onModeChoisi = { mode -> demarrerJeu(mode) }
+        menuPrincipal.onParametres = {
+            // TODO(UI paramètres) : portage de #ecranParametres (avatars,
+            // règles/qui commence) pas encore fait — vient après l'UI de
+            // partie dans l'ordre choisi pour cette suite de sessions.
+            Toast.makeText(this, "Paramètres : bientôt disponible", Toast.LENGTH_SHORT).show()
+        }
+        racine.addView(menuPrincipal, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
 
         val splash = SplashView(this)
         racine.addView(splash, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
@@ -92,11 +112,66 @@ class MainActivity : AppCompatActivity() {
         setContentView(racine)
 
         splash.demarrer {
-            // TODO(UI accueil) : à cette étape, afficher le véritable écran
-            // d'accueil (portage de #menuPrincipal côté JS) au lieu d'aller
-            // directement à la partie. Prochaine étape de la session UI.
-            Toast.makeText(this, "Tour des Blancs", Toast.LENGTH_SHORT).show()
+            // Écran suivant révélé pendant que le splash termine son fondu :
+            // le menu principal, déjà en dessous, apparaît simplement en
+            // devenant visible (miroir de menu-visible ajouté côté JS).
         }
+    }
+
+    /** Lance une partie depuis le menu (miroir de demarrerJeu(mode) côté JS). */
+    private fun demarrerJeu(mode: String) {
+        modeJeu = mode
+
+        if (mode != "humain") {
+            // L'IA (JNI + coroutines) n'est pas encore branchée : on lance
+            // quand même une partie jouable, en pass-and-play, plutôt que de
+            // bloquer le bouton. À remplacer dès l'étape "IA" de la roadmap.
+            Toast.makeText(this, "IA pas encore branchée — mode 2 joueurs en attendant", Toast.LENGTH_SHORT).show()
+        }
+
+        annulerTimersEnAttente()
+        plateau = MoteurJeu.plateauInitial()
+        couleurActuelle = MoteurJeu.BLANC
+        compteurErreurs = 0
+        compteurCoupsNuls = 0
+        rafleEnCours = false
+        pionQuiRafle = null
+        effacerSelection()
+        boardView.plateau = plateau
+
+        menuPrincipal.visibility = android.view.View.GONE
+        boardView.visibility = android.view.View.VISIBLE
+    }
+
+    /** Retour au menu (miroir de retourMenu() côté JS). Déclenché pour
+     * l'instant par le bouton retour matériel/geste Android : le vrai bouton
+     * "quitter" à l'écran, comme côté JS, viendra avec l'étape "UI de
+     * partie" (plateau centré, boutons quitter/nouvelle partie). */
+    private fun retourMenu() {
+        annulerTimersEnAttente()
+        modeJeu = "humain"
+        effacerSelection()
+        rafleEnCours = false
+        pionQuiRafle = null
+
+        boardView.visibility = android.view.View.GONE
+        menuPrincipal.visibility = android.view.View.VISIBLE
+    }
+
+    override fun onBackPressed() {
+        if (boardView.visibility == android.view.View.VISIBLE) {
+            retourMenu()
+        } else {
+            super.onBackPressed()
+        }
+    }
+
+    /** Annule toute étape de rafle automatique encore programmée (jouerSequence
+     * via handler.postDelayed), pour ne pas laisser un ancien coup se jouer
+     * tout seul après un retour au menu ou un nouveau lancement de partie
+     * (miroir de annulerTousLesTimersJeu() côté JS). */
+    private fun annulerTimersEnAttente() {
+        handler.removeCallbacksAndMessages(null)
     }
 
     private fun onCaseTouchee(x: Int, z: Int) {
