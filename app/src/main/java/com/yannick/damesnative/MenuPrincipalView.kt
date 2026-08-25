@@ -1,6 +1,10 @@
 package com.yannick.damesnative
 
 import android.content.Context
+import android.graphics.Canvas
+import android.graphics.Color
+import android.graphics.Paint
+import android.graphics.RectF
 import android.graphics.drawable.GradientDrawable
 import android.text.SpannableString
 import android.text.Spanned
@@ -131,7 +135,8 @@ class MenuPrincipalView(context: Context) : FrameLayout(context) {
         })
 
         carte.addView(
-            creerBoutonMenu(context, "Deux joueurs", "👥", 0xFF0052D4.toInt(), 0xFF4364F7.toInt()) {
+            creerBoutonMenu(context, "Deux joueurs", "👥", 0xFF0052D4.toInt(), 0xFF4364F7.toInt(),
+                iconePersonnalisee = { IconeDeuxPersonnes(context) }) {
                 onModeChoisi?.invoke("humain")
             },
             LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
@@ -220,9 +225,14 @@ class MenuPrincipalView(context: Context) : FrameLayout(context) {
 
     /** Un bouton du menu (humain ou IA) : badge icône + libellé, sur fond
      * dégradé (approximation du linear-gradient(135deg, c1, c2) CSS). */
+    /** [iconePersonnalisee], si fourni, remplace le badge emoji par une vue
+     * dessinée à la main — utile quand l'emoji dépend trop de la police
+     * système du téléphone (cf. IconeDeuxPersonnes ci-dessous). */
     private fun creerBoutonMenu(
         context: Context, texte: String, icone: String,
-        couleur1: Int, couleur2: Int, action: () -> Unit
+        couleur1: Int, couleur2: Int,
+        iconePersonnalisee: (() -> View)? = null,
+        action: () -> Unit
     ): LinearLayout {
         val bouton = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -235,13 +245,21 @@ class MenuPrincipalView(context: Context) : FrameLayout(context) {
             setPadding(dp(15), dp(12), dp(15), dp(12))
         }
 
-        val badge = TextView(context).apply {
-            text = icone
-            textSize = 17f
-            gravity = Gravity.CENTER
-            background = GradientDrawable().apply {
-                setColor(COULEUR_ICONE_FOND)
-                cornerRadius = dp(12).toFloat()
+        val fondBadge = GradientDrawable().apply {
+            setColor(COULEUR_ICONE_FOND)
+            cornerRadius = dp(12).toFloat()
+        }
+        val badge: View = if (iconePersonnalisee != null) {
+            FrameLayout(context).apply {
+                background = fondBadge
+                addView(iconePersonnalisee(), FrameLayout.LayoutParams(dp(18), dp(18), Gravity.CENTER))
+            }
+        } else {
+            TextView(context).apply {
+                text = icone
+                textSize = 17f
+                gravity = Gravity.CENTER
+                background = fondBadge
             }
         }
         bouton.addView(badge, LinearLayout.LayoutParams(dp(34), dp(34)))
@@ -319,4 +337,49 @@ class MenuPrincipalView(context: Context) : FrameLayout(context) {
     }
 
     private fun dp(valeur: Int): Int = (valeur * resources.displayMetrics.density).toInt()
+
+    /**
+     * Icône "deux personnes" dessinée à la main (tête + torse simplifiés,
+     * silhouette arrière décalée et semi-transparente, silhouette avant
+     * pleine opacité), en blanc uni.
+     *
+     * Remplace l'emoji 👥 utilisé pour le bouton "Deux joueurs" : sur ce
+     * modèle (Go Edition, police système allégée), 👥 retombe sur un glyphe
+     * de repli qui ressemble à une seule personne au lieu de deux — les
+     * autres emoji du menu (🤖🧠🔥👑) s'affichent correctement, seul celui-ci
+     * pose problème selon la police du téléphone. Dessiner la forme nous-même
+     * la rend indépendante de la police système, tout en respectant
+     * l'intention du CSS d'origine (.btn-human .btn-icon { filter:
+     * brightness(0) invert(1) } → icône blanche unie, jamais colorée).
+     */
+    private class IconeDeuxPersonnes(context: Context) : View(context) {
+        private val peinture = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE }
+
+        override fun onDraw(canvas: Canvas) {
+            super.onDraw(canvas)
+            val largeur = width.toFloat()
+            val hauteur = height.toFloat()
+            if (largeur <= 0f || hauteur <= 0f) return
+
+            // Silhouette arrière : plus petite, décalée à gauche, semi-transparente.
+            peinture.alpha = 150
+            dessinerPersonne(canvas, largeur * 0.38f, largeur * 0.16f, hauteur)
+
+            // Silhouette avant : plus grande, décalée à droite, pleine opacité.
+            peinture.alpha = 255
+            dessinerPersonne(canvas, largeur * 0.62f, largeur * 0.19f, hauteur)
+        }
+
+        private fun dessinerPersonne(canvas: Canvas, centreX: Float, rayonTete: Float, hauteur: Float) {
+            val centreYTete = hauteur * 0.30f
+            canvas.drawCircle(centreX, centreYTete, rayonTete, peinture)
+
+            val hautCorps = centreYTete + rayonTete * 0.65f
+            val rectCorps = RectF(
+                centreX - rayonTete * 1.35f, hautCorps,
+                centreX + rayonTete * 1.35f, hauteur
+            )
+            canvas.drawRoundRect(rectCorps, rayonTete, rayonTete, peinture)
+        }
+    }
 }
