@@ -23,6 +23,7 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var boardView: BoardView
     private lateinit var menuPrincipal: MenuPrincipalView
+    private lateinit var parametresView: ParametresView
 
     /** Mode de partie choisi au menu : "humain", "faible", "moyen", "normal"
      * ou "expert" (miroir de la variable modeJeu côté JS). L'IA elle-même
@@ -98,13 +99,14 @@ class MainActivity : AppCompatActivity() {
 
         menuPrincipal = MenuPrincipalView(this)
         menuPrincipal.onModeChoisi = { mode -> demarrerJeu(mode) }
-        menuPrincipal.onParametres = {
-            // TODO(UI paramètres) : portage de #ecranParametres (avatars,
-            // règles/qui commence) pas encore fait — vient après l'UI de
-            // partie dans l'ordre choisi pour cette suite de sessions.
-            Toast.makeText(this, "Paramètres : bientôt disponible", Toast.LENGTH_SHORT).show()
-        }
+        menuPrincipal.onParametres = { parametresView.ouvrir() }
         racine.addView(menuPrincipal, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+
+        // Par-dessus le menu : caché tant qu'on n'a pas appuyé sur "⚙ Paramètres"
+        // (miroir de #ecranParametres, invisible/opacity 0 par défaut côté JS).
+        parametresView = ParametresView(this)
+        parametresView.onFermer = { /* déjà masqué par ParametresView elle-même ; rien à faire de plus ici */ }
+        racine.addView(parametresView, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
 
         val splash = SplashView(this)
         racine.addView(splash, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
@@ -159,7 +161,11 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onBackPressed() {
-        if (boardView.visibility == android.view.View.VISIBLE) {
+        if (parametresView.visibility == android.view.View.VISIBLE) {
+            // Miroir de clicRetourParametres() côté JS : d'abord remonter du
+            // sous-écran (avatars/règles) au hub, puis seulement fermer.
+            parametresView.retourMateriel()
+        } else if (boardView.visibility == android.view.View.VISIBLE) {
             retourMenu()
         } else {
             super.onBackPressed()
