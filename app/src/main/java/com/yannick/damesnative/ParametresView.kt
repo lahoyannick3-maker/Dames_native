@@ -1,16 +1,14 @@
 package com.yannick.damesnative
 
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Context
 import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
-import android.text.Editable
-import android.text.InputFilter
-import android.text.InputType
-import android.text.TextWatcher
 import android.view.Gravity
+import android.view.MotionEvent
 import android.view.View
-import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.ScrollView
@@ -26,26 +24,26 @@ import kotlin.math.min
  *    catégorie (ouvrirParametres() côté JS) ;
  *  - sous-écran Avatars : bloc Joueur 1 et bloc Joueur 2, chacun avec
  *    aperçu, bascule Emoji/Initiales, grille d'émojis (6 colonnes), champ
- *    d'initiales, grille de couleurs (7 colonnes) ;
+ *    d'initiales avec clavier virtuel dédié, grille de couleurs (7 col.) ;
  *  - sous-écran Règles du jeu : "Qui commence ?" (Blancs/Noirs).
  *
  * Persistance : SharedPreferences "dame_prefs", équivalent natif du
  * localStorage utilisé côté JS (mêmes données : profil de chaque joueur,
  * couleur de début de partie).
  *
- * DÉVIATION assumée par rapport au JS : le champ d'initiales utilise ici un
- * vrai EditText + clavier système Android, au lieu du clavier virtuel
- * dessiné à la main (curseur customisé, bulle copier/coller) construit
- * côté JS. Ce clavier virtuel n'existait que pour contourner un problème
- * propre aux WebView (le clavier natif Android perturbait le viewport de
- * la page) — ce problème n'existe pas ici puisqu'on est en Android natif,
- * où EditText + IME système est le comportement standard et correct.
+ * Clavier des initiales (voir ClavierInitiales.kt) : champ non éditable au
+ * sens Android (ChampInitialesVue, PAS un EditText), clavier virtuel A-Z
+ * qui coulisse depuis le bas, bulle Copier/Coller sur appui long — miroir
+ * fidèle de #clavierVirtuelInitiales côté JS. Le clavier système Android
+ * n'est jamais utilisé ici : il ne pourrait pas pivoter avec la carte du
+ * Joueur 2 quand elle est retournée à 180° en cours de partie.
  *
  * PÉRIMÈTRE de cette étape : seule l'origine "menu" (ouvrirParametres(),
- * les deux profils visibles) est portée. La variante "jeu" — un seul
- * avatar visible, carte retournée à 180° pour le Joueur 2, appelée par
- * ouvrirParametresJoueur() côté JS — viendra avec l'étape "UI de partie",
- * quand les badges joueurs en jeu existeront côté natif.
+ * les deux profils visibles, jamais de carte tournée) est portée. La
+ * variante "jeu" — un seul avatar visible, carte ET clavier retournés à
+ * 180° pour le Joueur 2, appelée par ouvrirParametresJoueur() côté JS —
+ * viendra avec l'étape "UI de partie", quand les badges joueurs en jeu
+ * existeront côté natif.
  */
 class ParametresView(context: Context) : FrameLayout(context) {
 
@@ -84,7 +82,6 @@ class ParametresView(context: Context) : FrameLayout(context) {
         private const val COULEUR_EMOJI_FOND = 0x0AFFFFFF // rgba(255,255,255,0.04)
         private const val COULEUR_EMOJI_BORD = 0x1AFFFFFF // rgba(255,255,255,0.1)
 
-        private const val COULEUR_PLACEHOLDER = 0x59FFFFFF // rgba(255,255,255,0.35)
         private const val COULEUR_NOTE = 0x73FFFFFF // rgba(255,255,255,0.45)
 
         private const val LARGEUR_CARTE_MAX_DP = 420
@@ -121,6 +118,14 @@ class ParametresView(context: Context) : FrameLayout(context) {
     /** null = hub d'accueil ; "avatars" ou "regles" = sous-écran actif. */
     private var sousEcran: String? = null
 
+    // ---- État du clavier virtuel des initiales (miroir des variables
+    // module-scope côté JS : joueurClavierInitialesActif, curseurPositionInitiales) ----
+    private var joueurClavierActif: String? = null
+    private var curseurPosJ1 = 0
+    private var curseurPosJ2 = 0
+    private var champActif: ChampInitialesVue? = null
+    private var apercuActif: TextView? = null
+
     private val fondRadial = GradientDrawable().apply {
         gradientType = GradientDrawable.RADIAL_GRADIENT
         colors = intArrayOf(COULEUR_FOND_1, COULEUR_FOND_2, COULEUR_FOND_3)
@@ -130,6 +135,8 @@ class ParametresView(context: Context) : FrameLayout(context) {
     private lateinit var titreVue: TextView
     private lateinit var conteneurContenu: LinearLayout
     private lateinit var defilement: ScrollView
+    private lateinit var clavierInitiales: ClavierVirtuelInitiales
+    private lateinit var bulleCopierColler: BulleCopierColler
 
     init {
         visibility = View.GONE
@@ -147,6 +154,22 @@ class ParametresView(context: Context) : FrameLayout(context) {
             FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT)
         )
         addView(defilement, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
+
+        // Clavier + bulle : ajoutés en dernier pour rester au-dessus de la
+        // carte, indépendants d'elle (comme #clavierVirtuelInitiales et
+        // #bulleCopierCollerInitiales, hors de #parametresCard côté JS).
+        clavierInitiales = ClavierVirtuelInitiales(context).apply {
+            onLettre = { lettre -> saisirLettreClavier(lettre) }
+            onEffacer = { effacerDerniereInitiale() }
+            onFermer = { fermerClavierVirtuel() }
+        }
+        addView(clavierInitiales, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM))
+
+        bulleCopierColler = BulleCopierColler(context).apply {
+            onCopier = { copierInitiales() }
+            onColler = { collerInitiales() }
+        }
+        addView(bulleCopierColler, FrameLayout.LayoutParams(FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT))
     }
 
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
@@ -164,8 +187,22 @@ class ParametresView(context: Context) : FrameLayout(context) {
         }
     }
 
+    /** Un tap n'importe où en dehors de la bulle Copier/Coller la referme
+     * (miroir du listener document-level touchstart côté JS). */
+    override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
+        if (ev.actionMasked == MotionEvent.ACTION_DOWN && bulleCopierColler.visibility == View.VISIBLE) {
+            val loc = IntArray(2)
+            bulleCopierColler.getLocationOnScreen(loc)
+            val dansLaBulle = ev.rawX >= loc[0] && ev.rawX <= loc[0] + bulleCopierColler.width &&
+                ev.rawY >= loc[1] && ev.rawY <= loc[1] + bulleCopierColler.height
+            if (!dansLaBulle) bulleCopierColler.masquer()
+        }
+        return super.dispatchTouchEvent(ev)
+    }
+
     /** Ouvre l'écran depuis le menu (miroir de ouvrirParametres() côté JS). */
     fun ouvrir() {
+        fermerClavierVirtuel()
         sousEcran = null
         rafraichir()
         defilement.scrollTo(0, 0)
@@ -173,11 +210,16 @@ class ParametresView(context: Context) : FrameLayout(context) {
     }
 
     /** À appeler depuis le bouton retour matériel quand cet écran est visible
-     * (miroir de clicRetourParametres() côté JS : d'abord remonter au hub,
-     * puis seulement fermer). Consomme toujours l'événement. */
+     * (miroir de clicRetourParametres() côté JS). Consomme toujours l'événement. */
     fun retourMateriel() = clicRetour()
 
+    /** Miroir exact de clicRetourParametres() : le clavier se ferme en
+     * premier s'il est ouvert, puis seulement le sous-écran, puis l'écran. */
     private fun clicRetour() {
+        if (clavierInitiales.visibility == View.VISIBLE) {
+            fermerClavierVirtuel()
+            return
+        }
         if (sousEcran != null) {
             sousEcran = null
             rafraichir()
@@ -246,6 +288,11 @@ class ParametresView(context: Context) : FrameLayout(context) {
     }
 
     private fun rafraichir() {
+        // Sécurité : une reconstruction complète du sous-écran (changement
+        // d'emoji/couleur, bascule de sous-écran...) détacherait le champ
+        // actuellement lié au clavier. On referme proprement avant.
+        fermerClavierVirtuel()
+
         titreVue.text = when (sousEcran) {
             "avatars" -> "Avatars"
             "regles" -> "Règles du jeu"
@@ -441,8 +488,8 @@ class ParametresView(context: Context) : FrameLayout(context) {
             )
         }
 
-        val largeurContenuDp = contenuLargeurDp()
-        val tailleCouleurDp = (largeurContenuDp - 6 * 8) / 7f
+        val largeurContenuDp2 = contenuLargeurDp()
+        val tailleCouleurDp = (largeurContenuDp2 - 6 * 8) / 7f
         val grilleCouleur = grilleFixe(context, PALETTE_COULEURS.size, 7, tailleCouleurDp, 8) { idx ->
             val couleur = PALETTE_COULEURS[idx]
             val actif = profil.couleur == couleur
@@ -474,8 +521,16 @@ class ParametresView(context: Context) : FrameLayout(context) {
         return largeurCarteDp - 40f
     }
 
+    private fun profilPour(joueur: String): Profil = if (joueur == "j1") profilJ1 else profilJ2
+
+    private fun curseurPosPour(joueur: String): Int = if (joueur == "j1") curseurPosJ1 else curseurPosJ2
+
+    private fun definirCurseurPosPour(joueur: String, position: Int) {
+        if (joueur == "j1") curseurPosJ1 = position else curseurPosJ2 = position
+    }
+
     private fun changerTypeProfil(joueur: String, type: String) {
-        val profil = if (joueur == "j1") profilJ1 else profilJ2
+        val profil = profilPour(joueur)
         profil.type = type
         if (type == "emoji" && profil.value !in EMOJIS_DISPONIBLES) profil.value = EMOJIS_DISPONIBLES[0]
         if (type == "initiales") profil.value = profil.value.uppercase().filter { it in 'A'..'Z' }.take(2)
@@ -483,57 +538,140 @@ class ParametresView(context: Context) : FrameLayout(context) {
         rafraichir()
     }
 
+    // ---------- Champ d'initiales + clavier virtuel ----------
+
     private fun construireChampInitiales(context: Context, joueur: String, profil: Profil, apercu: TextView): LinearLayout {
-        val champ = EditText(context).apply {
-            setText(profil.value)
-            hint = if (joueur == "j1") "Ex : JY" else "Ex : YL"
-            setHintTextColor(COULEUR_PLACEHOLDER)
-            setTextColor(Color.WHITE)
-            setTypeface(typeface, Typeface.BOLD)
-            gravity = Gravity.CENTER
-            textSize = 15f
-            letterSpacing = 0.12f
-            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_CHARACTERS
-            filters = arrayOf(FiltreLettresMajuscules(), InputFilter.LengthFilter(2))
+        lateinit var champ: ChampInitialesVue
+        champ = ChampInitialesVue(context).apply {
+            valeur = profil.value
+            placeholder = if (joueur == "j1") "Ex : JY" else "Ex : YL"
             background = GradientDrawable().apply {
                 setColor(COULEUR_TOGGLE_FOND)
                 cornerRadius = dp(12).toFloat()
                 setStroke(dp(1), COULEUR_TOGGLE_BORD)
             }
-            setPadding(dp(14), dp(10), dp(14), dp(10))
+            onTap = { position, xEcran, yEcran -> ouvrirClavierPourChamp(joueur, champ, apercu, position) }
+            onAppuiLong = { xEcran, yEcran -> afficherBulleCopierColler(joueur, xEcran, yEcran) }
         }
-        // Mise à jour locale (pas de rafraichir() complet ici, pour ne pas
-        // perdre le focus/curseur à chaque frappe) : miroir de
-        // mettreAJourInitialesDepuisClavier() côté JS.
-        champ.addTextChangedListener(object : TextWatcher {
-            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
-            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
-            override fun afterTextChanged(s: Editable?) {
-                profil.type = "initiales"
-                profil.value = (s?.toString() ?: "")
-                sauvegarderProfil(joueur, profil)
-                apercu.text = profil.value
-                apercu.textSize = 15f
-            }
-        })
-
         return LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
-            addView(champ, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+            addView(champ, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(44)))
         }
     }
 
-    /** N'accepte que des lettres, converties en majuscules (miroir du
-     * nettoyage A-Z appliqué côté JS aussi bien à la saisie qu'au collage). */
-    private class FiltreLettresMajuscules : InputFilter {
-        override fun filter(source: CharSequence, start: Int, end: Int, dest: android.text.Spanned?, dstart: Int, dend: Int): CharSequence {
-            val resultat = StringBuilder()
-            for (i in start until end) {
-                val c = source[i]
-                if (c.isLetter()) resultat.append(c.uppercaseChar())
-            }
-            return resultat
+    /** Miroir de ouvrirClavierInitiales(joueur, evt) côté JS. */
+    private fun ouvrirClavierPourChamp(joueur: String, champ: ChampInitialesVue, apercu: TextView, positionTap: Int) {
+        if (joueurClavierActif != null && joueurClavierActif != joueur) {
+            champActif?.activerSaisie(false)
         }
+        joueurClavierActif = joueur
+        champActif = champ
+        apercuActif = apercu
+
+        val profil = profilPour(joueur)
+        val position = positionTap.coerceIn(0, profil.value.length)
+        definirCurseurPosPour(joueur, position)
+
+        champ.valeur = profil.value
+        champ.curseurPosition = position
+        champ.activerSaisie(true)
+
+        clavierInitiales.ouvrir(if (joueur == "j2") "Initiales — Joueur 2" else "Initiales — Joueur 1")
+    }
+
+    /** Miroir de fermerClavierInitiales() côté JS. */
+    private fun fermerClavierVirtuel() {
+        clavierInitiales.fermer()
+        champActif?.activerSaisie(false)
+        champActif = null
+        apercuActif = null
+        joueurClavierActif = null
+        bulleCopierColler.masquer()
+    }
+
+    /** Miroir de mettreAJourInitialesDepuisClavier(joueur) côté JS : mise à
+     * jour locale du champ + de l'aperçu, sans reconstruire tout l'écran
+     * (pour ne pas fermer le clavier qu'on est en train d'utiliser). */
+    private fun rafraichirApercuInitiales(joueur: String) {
+        val profil = profilPour(joueur)
+        profil.type = "initiales"
+        profil.value = profil.value.uppercase().take(2)
+
+        val position = curseurPosPour(joueur).coerceIn(0, profil.value.length)
+        definirCurseurPosPour(joueur, position)
+
+        champActif?.valeur = profil.value
+        champActif?.curseurPosition = position
+
+        apercuActif?.text = profil.value
+        apercuActif?.textSize = 15f
+
+        sauvegarderProfil(joueur, profil)
+    }
+
+    /** Miroir de saisirLettreClavierInitiales(lettre) côté JS. */
+    private fun saisirLettreClavier(lettre: Char) {
+        val joueur = joueurClavierActif ?: return
+        val profil = profilPour(joueur)
+        val valeur = profil.value.uppercase()
+        if (valeur.length >= 2) return
+
+        var pos = curseurPosPour(joueur).coerceIn(0, valeur.length)
+        profil.value = valeur.substring(0, pos) + lettre + valeur.substring(pos)
+        pos += 1
+        definirCurseurPosPour(joueur, pos)
+        rafraichirApercuInitiales(joueur)
+    }
+
+    /** Miroir de effacerDerniereInitiale() côté JS (efface avant le curseur). */
+    private fun effacerDerniereInitiale() {
+        val joueur = joueurClavierActif ?: return
+        val profil = profilPour(joueur)
+        val valeur = profil.value
+        val pos = curseurPosPour(joueur).coerceIn(0, valeur.length)
+        if (pos == 0) return
+
+        profil.value = valeur.substring(0, pos - 1) + valeur.substring(pos)
+        definirCurseurPosPour(joueur, pos - 1)
+        rafraichirApercuInitiales(joueur)
+    }
+
+    /** Miroir de copierInitiales() côté JS — plus simple en natif : pas
+     * besoin de plugin, l'API ClipboardManager d'Android suffit. */
+    private fun copierInitiales() {
+        val joueur = joueurClavierActif ?: return
+        val profil = profilPour(joueur)
+        if (profil.value.isEmpty()) return
+        val gestionnaire = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager ?: return
+        gestionnaire.setPrimaryClip(ClipData.newPlainText("initiales", profil.value))
+    }
+
+    /** Miroir de collerInitiales() côté JS. */
+    private fun collerInitiales() {
+        val joueur = joueurClavierActif ?: return
+        val gestionnaire = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager ?: return
+        val item = gestionnaire.primaryClip?.takeIf { it.itemCount > 0 }?.getItemAt(0) ?: return
+        val texte = item.coerceToText(context)?.toString() ?: return
+        val lettres = texte.uppercase().filter { it in 'A'..'Z' }
+        if (lettres.isEmpty()) return
+
+        val profil = profilPour(joueur)
+        val valeur = profil.value
+        val pos = curseurPosPour(joueur).coerceIn(0, valeur.length)
+        val nouvelleValeur = (valeur.substring(0, pos) + lettres + valeur.substring(pos)).take(2)
+        profil.value = nouvelleValeur
+        definirCurseurPosPour(joueur, (pos + lettres.length).coerceAtMost(nouvelleValeur.length))
+        rafraichirApercuInitiales(joueur)
+    }
+
+    /** Miroir de afficherBulleCopierCollerInitiales(joueur, x, y) côté JS. */
+    private fun afficherBulleCopierColler(joueur: String, xEcran: Float, yEcran: Float) {
+        val profil = profilPour(joueur)
+        val loc = IntArray(2)
+        getLocationOnScreen(loc)
+        val xParent = xEcran - loc[0]
+        val yParent = yEcran - loc[1]
+        bulleCopierColler.afficher(xParent, yParent, profil.value.isNotEmpty(), width)
     }
 
     // ---------- Sous-écran Règles du jeu ----------
@@ -629,8 +767,7 @@ class ParametresView(context: Context) : FrameLayout(context) {
 
     /** Grille à cellules carrées de taille fixe (dp), en lignes de
      * [colonnes] éléments — miroir de grid-template-columns: repeat(N, 1fr)
-     * + gap côté CSS, sans dépendre de weights Android (qui ne donnent pas
-     * des cellules carrées de façon fiable). */
+     * + gap côté CSS, sans dépendre de weights Android. */
     private fun grilleFixe(
         context: Context, count: Int, colonnes: Int, celluleDp: Float, gapDp: Int,
         builder: (Int) -> View
